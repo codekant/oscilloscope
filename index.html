@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Web Audio Oscilloscope</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config = { darkMode: 'class' }</script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/plyr@3/dist/plyr.css" />
+  <style>
+    :root{ --surface:#ffffff; --text:#0f172a; --muted:#334155; --card:#f8fafc; --plyr-color-main:#0ea5e9; --plyr-range-thumb-background:var(--plyr-color-main); }
+    .dark{ --surface:#0b1220; --text:#f1f5f9; --muted:#94a3b8; --card:#0f172a; --plyr-color-main:#38bdf8; --plyr-range-thumb-background:var(--plyr-color-main); }
+    html,body{height:100%}
+    input[type="range"]{ -webkit-appearance:none; width:100%; height:0.5rem; background:#e2e8f0; border-radius:9999px; outline:none; }
+    .dark input[type="range"]{ background:#1f2937; }
+    input[type="range"]::-webkit-slider-thumb{ -webkit-appearance:none; width:16px; height:16px; border-radius:9999px; background:var(--plyr-range-thumb-background); border:none; }
+    input[type="range"]::-moz-range-thumb{ width:16px; height:16px; border-radius:9999px; background:var(--plyr-range-thumb-background); border:none; }
+    button:active{ transform:none!important; }
+    select{ border-radius:1rem; }
+    .scope-stack{position:relative}
+    .scope-grid,.scope-trace{position:absolute;inset:0;display:block}
+    #scope-holder{width:100%}
+    .canvas-wrap{background:#ffffff} /* fixed canvas container background - does NOT change with theme */
+    .plyr--full-ui{border-radius:0.75rem;overflow:hidden} /* rounded plyr */
+  </style>
+</head>
+<body class="h-full bg-[var(--surface)] text-[var(--text)]">
+  <header class="w-full px-6 md:px-10 pt-3">
+    <div class="max-w-6xl mx-auto flex items-center justify-between">
+      <h1 class="text-xl md:text-2xl font-semibold select-none">Web Audio Oscilloscope</h1>
+      <button id="themeToggle" class="text-2xl p-2 rounded-full hover:opacity-80 focus:outline-none bg-transparent" title="Toggle theme" aria-label="Toggle theme">🌙</button>
+    </div>
+  </header>
+
+   <main class="w-full px-6 md:px-10 pt-3 pb-6"> <!-- added bottom padding -->
+    <div class="max-w-6xl mx-auto">
+      <div class="mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 items-start">
+        <!-- Graph: canvas container has fixed white background so theme changes don't affect it -->
+        <section class="rounded-xl shadow-soft p-3 md:p-4" style="background:#212121">
+          <div id="scope-holder" class="scope-stack rounded-xl overflow-hidden canvas-wrap" style="background-color:#0f0f0f">
+            <canvas id="gridCanvas" class="scope-grid" aria-hidden="true"></canvas>
+            <canvas id="traceCanvas" class="scope-trace blur-xs" aria-hidden="true"></canvas>
+          </div>
+            <span class="self-auto pt-2 text-xs font-medium text-gray-400 hidden" id="fileNotes">Note: Refresh if you wish to change the uploaded file.</span> 
+        </section>
+
+        <!-- Controls -->
+        <aside class="rounded-xl shadow-soft bg-[var(--card)] p-4 md:p-5">
+          <div class="grid gap-4">
+            <div class="grid gap-3">
+              <label class="text-sm font-medium">Mode</label>
+              <select id="mode" class="w-full bg-[var(--surface)] text-[var(--text)] border border-transparent focus:ring-2 focus:ring-sky-400 px-3 py-2 rounded-xl">
+                <option value="lissajous">Lissajous</option>
+                <option value="time">Time</option>
+                <option value="spectrum">Spectrum</option>
+              </select>
+
+              <div class="flex flex-wrap gap-2 pt-1">
+                <button id="micBtn" class="px-3 py-2 rounded-xl bg-sky-500/10 hover:bg-sky-500/20 text-sky-600 dark:text-sky-300">Use Microphone</button>
+                <div>
+                  <input id="fileInput" type="file" accept="audio/*" class="hidden" />
+                  <button id="fileBtn" class="px-3 py-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300">Upload Audio File</button>
+                  <div id="fileMeta" class="text-xs text-[var(--muted)] pt-1 hidden"></div>
+                </div>
+              </div>
+
+              <div id="playerWrap" class="hidden pt-2">
+                <audio id="player" controls class="w-full"></audio>
+              </div>
+            </div>
+
+            <hr class="border-none h-px bg-black/10 dark:bg-white/10" />
+
+            <div class="grid gap-4">
+              <div>
+                <label class="text-sm font-medium">Gain <span id="gainVal" class="slider-value px-2 text-xs font-medium text-gray-400"></span></label>
+                <input id="gain" type="range" min="0" max="5" step="0.01" value="1.25" />
+              </div>
+              <div>
+                <label class="text-sm font-medium">Intensity <span id="intensityVal" class="slider-value px-2 text-xs font-medium text-gray-400"></span></label>
+                <input id="intensity" type="range" min="0.05" max="1" step="0.01" value="0.5" />
+              </div>
+              <div>
+                <label class="text-sm font-medium">Audio Volume <span id="volumeVal" class="slider-value px-2 text-xs font-medium text-gray-400"></span></label>
+                <input id="volume" type="range" min="0" max="1" step="0.01" value="0.8" />
+              </div>
+              <div>
+                <label class="text-sm font-medium">Hue <span id="hueVal" class="slider-value px-2 text-xs font-medium text-gray-400"></span></label>
+                <input id="hue" type="range" min="0" max="360" step="1" value="130" />
+              </div>
+              <div>
+                <label class="text-sm font-medium">Persistence <span id="persistenceVal" class="slider-value px-2 text-xs font-medium text-gray-400"></span></label>
+                <input id="persistence" type="range" min="0" max="0.995" step="0.001" value="0.25" />
+              </div>
+              <div id="timeExtra" class="hidden">
+                <label class="text-sm font-medium">Milliseconds / Division <span id="msPerDivVal" class="slider-value px-2 text-xs font-medium text-gray-400"></span></label>
+                <input id="msPerDiv" type="range" min="0.2" max="50" step="0.1" value="2" />
+              </div>
+
+              <div class="grid grid-cols-2 gap-2 pt-1">
+                <label class="inline-flex items-center gap-2 text-sm"><input id="swapXY" type="checkbox" /> <span>Swap X/Y</span></label>
+                <label class="inline-flex items-center gap-2 text-sm"><input id="invertX" type="checkbox" /> <span>Invert X</span></label>
+                <label class="inline-flex items-center gap-2 text-sm"><input id="invertY" type="checkbox" /> <span>Invert Y</span></label>
+                <label class="inline-flex items-center gap-2 text-sm"><input id="pauseframe" type="checkbox" /> <span>Pause Frame</span></label>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/plyr@3/dist/plyr.min.js"></script>
+  <script>
+    // ===== Theme handling (UI only) =====
+    const htmlEl = document.documentElement;
+    const themeToggle = document.getElementById('themeToggle');
+    function applyThemeBtn() { themeToggle.textContent = htmlEl.classList.contains('dark') ? '🌞' : '🌙'; }
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+      htmlEl.classList.add('dark');
+    }
+    applyThemeBtn();
+    themeToggle.addEventListener('click', () => {
+      htmlEl.classList.toggle('dark');
+      localStorage.setItem('theme', htmlEl.classList.contains('dark') ? 'dark' : 'light');
+      applyThemeBtn();
+      // DO NOT touch canvas or grid when theme changes.
+    });
+
+    const sliders = [
+      { el: document.getElementById('gain'), out: document.getElementById('gainVal') },
+      { el: document.getElementById('intensity'), out: document.getElementById('intensityVal') },
+      { el: document.getElementById('volume'), out: document.getElementById('volumeVal') },
+      { el: document.getElementById('hue'), out: document.getElementById('hueVal') },
+      { el: document.getElementById('persistence'), out: document.getElementById('persistenceVal') },
+      { el: document.getElementById('msPerDiv'), out: document.getElementById('msPerDivVal') }
+    ];
+    sliders.forEach(({ el, out }) => {
+      if (!el || !out) return;
+      const update = () => out.textContent = el.value;
+      el.addEventListener('input', update);
+      update();
+    });
+
+    // ===== Element refs =====
+    const modeSel = document.getElementById('mode');
+    const micBtn = document.getElementById('micBtn');
+    const fileBtn = document.getElementById('fileBtn');
+    const fileInput = document.getElementById('fileInput');
+    const fileMeta = document.getElementById('fileMeta');
+    const playerWrap = document.getElementById('playerWrap');
+    const audioEl = document.getElementById('player');
+
+    const gainEl = document.getElementById('gain');
+    const intensityEl = document.getElementById('intensity');
+    const volumeEl = document.getElementById('volume');
+    const hueEl = document.getElementById('hue');
+    const persistenceEl = document.getElementById('persistence');
+    const msPerDivEl = document.getElementById('msPerDiv');
+
+    const swapXYEl = document.getElementById('swapXY');
+    const invertXEl = document.getElementById('invertX');
+    const invertYEl = document.getElementById('invertY');
+
+    // Canvas setup
+    const holder = document.getElementById('scope-holder');
+    const gridCanvas = document.getElementById('gridCanvas');
+    const traceCanvas = document.getElementById('traceCanvas');
+    const gtx = gridCanvas.getContext('2d');
+    const ctx = traceCanvas.getContext('2d');
+
+    // Fixed canvas background color independent of theme (transparent keeps card visible).
+    // We will not redraw grid based on theme — grid is static black lines.
+    function sizeCanvases() {
+      const width = holder.clientWidth;
+      const height = Math.round(width * 3 / 4); // 4:3 aspect
+      gridCanvas.width = traceCanvas.width = width;
+      gridCanvas.height = traceCanvas.height = height;
+      holder.style.height = height + 'px';
+      drawGrid(gtx, gridCanvas.width, gridCanvas.height);
+      // clear trace canvas completely
+      ctx.clearRect(0, 0, traceCanvas.width, traceCanvas.height);
+    }
+    window.addEventListener('resize', sizeCanvases);
+
+    // Draw static grid: plain black lines, unaffected by theme or other settings
+    function drawGrid() {
+  const w = gridCanvas.width;
+  const h = gridCanvas.height;
+  gtx.clearRect(0, 0, w, h);
+  gtx.save();
+
+  const divisionsX = 8; // vertical divisions
+  const divisionsY = 6; // horizontal divisions
+  const stepX = w / divisionsX;
+  const stepY = h / divisionsY;
+
+  // Border (slightly visible)
+  gtx.strokeStyle = "rgba(255,255,255,0.06)";
+  gtx.lineWidth = 1;
+  gtx.strokeRect(0.5, 0.5, w - 1, h - 1);
+
+  // Draw vertical grid lines (dim), and horizontal ticks on them
+  for (let i = 0; i <= divisionsX; i++) {
+    const x = Math.round(i * stepX) + 0.5;
+    const isCenterX = (i === divisionsX / 2);
+
+    // vertical grid line
+    gtx.beginPath();
+    gtx.moveTo(x, 0);
+    gtx.lineTo(x, h);
+    gtx.strokeStyle = isCenterX ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.06)";
+    gtx.lineWidth = isCenterX ? 1.6 : 1;
+    gtx.stroke();
+
+    // horizontal ticks along this vertical line (perpendicular dashes)
+    const tickLenX = isCenterX ? 7.5 : 4.5;
+    for (let j = 0; j <= divisionsY; j++) {
+      const y = Math.round(j * stepY) + 0.5;
+      gtx.beginPath();
+      gtx.moveTo(x - tickLenX, y);
+      gtx.lineTo(x + tickLenX, y);
+      // brighter ticks (center ticks stronger)
+      gtx.strokeStyle = (isCenterX || j === divisionsY / 2) ? "rgba(255,255,255,0.34)" : "rgba(255,255,255,0.20)";
+      gtx.lineWidth = 1;
+      gtx.stroke();
+    }
+  }
+
+  // Draw horizontal grid lines (dim), and vertical ticks on them
+  for (let j = 0; j <= divisionsY; j++) {
+    const y = Math.round(j * stepY) + 0.5;
+    const isCenterY = (j === divisionsY / 2);
+
+    // horizontal grid line
+    gtx.beginPath();
+    gtx.moveTo(0, y);
+    gtx.lineTo(w, y);
+    gtx.strokeStyle = isCenterY ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.06)";
+    gtx.lineWidth = isCenterY ? 1.6 : 1;
+    gtx.stroke();
+
+    // vertical ticks along this horizontal line (perpendicular dashes)
+    const tickLenY = isCenterY ? 7.5 : 4.5;
+    for (let i = 0; i <= divisionsX; i++) {
+      const x = Math.round(i * stepX) + 0.5;
+      gtx.beginPath();
+      gtx.moveTo(x, y - tickLenY);
+      gtx.lineTo(x, y + tickLenY);
+      gtx.strokeStyle = (isCenterY || i === divisionsX / 2) ? "rgba(255,255,255,0.34)" : "rgba(255,255,255,0.20)";
+      gtx.lineWidth = 1;
+      gtx.stroke();
+    }
+  }
+
+  gtx.restore();
+}
+
+
+    // ===== Audio nodes & state =====
+    let audioCtx = null;
+    let gainNode = null;
+    let analyser = null;
+    let analyserY = null;
+    let sourceNode = null;
+    let animationId = null;
+    let currentStream = null; // store MediaStream from mic so we can stop tracks when switching
+
+    const plyrInstance = new Plyr(audioEl, { controls: ['play', 'progress', 'current-time', 'duration', 'mute', 'volume'], invertTime: false });
+
+    function ensureAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        gainNode = audioCtx.createGain();
+        gainNode.gain.value = parseFloat(volumeEl.value);
+      }
+    }
+
+    // Stop & clean previous source (disconnect nodes + stop mic tracks if any)
+    function stopSource() {
+      // stop animation
+      if (animationId) {
+        cancelAnimationFrame(animationId);
+        animationId = null;
+      }
+
+      // disconnect previous sourceNode from graph
+      try {
+        if (sourceNode) sourceNode.disconnect();
+      } catch (e) { /* ignore */ }
+      sourceNode = null;
+
+      // stop mic tracks if present
+      if (currentStream) {
+        try {
+          currentStream.getTracks().forEach(t => t.stop());
+        } catch (e) { /* ignore */ }
+        currentStream = null;
+      }
+      // ensure analyser references cleared
+      analyser = null;
+      analyserY = null;
+
+      // clear trace canvas fully to avoid leftover artifacts
+      if (ctx) ctx.clearRect(0, 0, traceCanvas.width, traceCanvas.height);
+    }
+    let micOn = false;
+    // ===== Microphone handling =====
+    micBtn.addEventListener('click', async () => {
+      if (micOn) window.location.reload();
+      ensureAudio();
+      // If mic already in use, do nothing
+      try {
+        // stop previous sources
+        stopSource();
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        currentStream = stream;
+        sourceNode = audioCtx.createMediaStreamSource(stream);
+        connectForMode({ from: 'mic' });
+        // hide file UI if any
+        playerWrap.classList.add('hidden');
+        fileMeta.classList.add('hidden');
+        micOn = true;
+      } catch (e) {
+        alert('Microphone access denied or unavailable.');
+        console.error(e);
+      }
+    });
+
+    // ===== File handling =====
+    fileBtn.addEventListener('click', () => (micOn || fileInput.files[0]) ? window.location.reload() : fileInput.click());
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) return;
+      ensureAudio();
+      stopSource(); // ensure mic is stopped
+      usingFile(file);
+    });
+
+      async function usingFile(file) {
+        // create object URL and set up media element source
+        const url = URL.createObjectURL(file);
+        audioEl.src = url;
+        playerWrap.classList.remove('hidden');
+        fileMeta.textContent = file.name;
+        fileMeta.classList.remove('hidden');
+        document.getElementById('fileNotes').classList.remove("hidden");
+
+        // ensure audioCtx is resumed (browser policies)
+        try { await audioCtx.resume(); } catch(e){}
+
+        // disconnect any old source then create media element source
+        try { if (sourceNode) sourceNode.disconnect(); } catch(e){}
+        sourceNode = audioCtx.createMediaElementSource(audioEl);
+        connectForMode({ from: 'file' });
+
+        // ensure the audio element's own volume is reflected in gainNode as well
+        audioEl.addEventListener('volumechange', () => {
+          if (gainNode) gainNode.gain.value = audioEl.volume;
+        });
+      }
+
+    // Connect nodes depending on mode
+    function connectForMode(meta = {}) {
+      if (!sourceNode) return;
+      // clean previous analyser nodes
+      try { if (analyser) analyser.disconnect(); } catch(e) {}
+      try { if (analyserY) analyserY.disconnect(); } catch(e) {}
+
+      if (modeSel.value === 'lissajous') {
+        // create two analysers for left and right channels if possible
+        const splitter = audioCtx.createChannelSplitter(2);
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 2048;
+        analyser.smoothingTimeConstant = 0.85;
+        analyserY = audioCtx.createAnalyser();
+        analyserY.fftSize = 2048;
+        analyserY.smoothingTimeConstant = 0.85;
+
+        sourceNode.connect(splitter);
+        splitter.connect(analyser, 0);
+        splitter.connect(analyserY, 1);
+
+        // also create a merger to send audio to destination via gainNode
+        const merger = audioCtx.createChannelMerger(2);
+        splitter.connect(merger, 0, 0);
+        splitter.connect(merger, 1, 1);
+        merger.connect(gainNode).connect(audioCtx.destination);
+      } else {
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = modeSel.value === 'spectrum' ? 4096 : 2048;
+        analyser.smoothingTimeConstant = 0.85;
+        sourceNode.connect(analyser);
+        // connect to gainNode -> destination for audible playback
+        try { analyser.connect(gainNode).connect(audioCtx.destination); } catch(e) {
+          // some browsers require direct connect
+          try { sourceNode.connect(gainNode).connect(audioCtx.destination); } catch(e){ }
+        }
+      }
+
+      // start drawing loop
+      startDrawingLoop();
+    }
+
+    // Mode change handling
+    modeSel.addEventListener('change', () => {
+      document.getElementById('timeExtra').classList.toggle('hidden', modeSel.value !== 'time');
+      // Reconnect nodes to reflect chosen analyser setup
+      ensureAudio();
+      // If we have a sourceNode (mic or file), reconnect
+      if (sourceNode) connectForMode();
+      else {
+        // nothing is connected — just ensure drawing loop is cleared
+        stopSource();
+      }
+    });
+
+    // Volume slider affects gainNode (audible playback)
+    volumeEl.addEventListener('input', () => {
+      if (gainNode) gainNode.gain.value = parseFloat(volumeEl.value);
+    });
+
+    // ===== Drawing Loop & Persistence =====
+    // We'll implement persistence using 'destination-out' erase technique to avoid color ghosts.
+    // On each frame: erase a small alpha of the trace canvas (fade), then draw new trace on top.
+    function startDrawingLoop() {
+      if (!analyser) return;
+      if (animationId) cancelAnimationFrame(animationId);
+
+      // prepare buffers
+      const timeBuf = new Uint8Array(analyser.fftSize);
+      const freqBuf = new Uint8Array(analyser.frequencyBinCount);
+      const floatBuf = new Float32Array(2048);
+
+      const w = traceCanvas.width, h = traceCanvas.height;
+
+      // use local references for speed; read live values each frame for real-time control updating
+      const frame = () => {
+        // Fade: erase part of previous drawing using destination-out with alpha = persistence
+        // Higher persistence value => faster fade (closer to 1 removes more); user slider 0..0.995
+        const persistence = parseFloat(persistenceEl.value); // 0..~1
+        // clamp reasonable
+        const fadeAlpha = Math.min(Math.max(persistence, 0), 0.995);
+
+        // Erase a bit of the existing drawing (destination-out removes alpha)
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.fillStyle = `rgba(0,0,0,${fadeAlpha})`;
+        ctx.fillRect(0, 0, w, h);
+        ctx.restore();
+
+        // Prepare drawing style
+        const hue = parseFloat(hueEl.value);
+        const intensity = parseFloat(intensityEl.value);
+        const gain = parseFloat(gainEl.value);
+        const swapXY = swapXYEl.checked;
+        const invertX = invertXEl.checked ? -1 : 1;
+        const invertY = invertYEl.checked ? -1 : 1;
+
+        ctx.save();
+        ctx.lineWidth = 1.5;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = `hsla(${hue},100%,60%,${intensity})`;
+        /* GLOW SETTING */
+        ctx.shadowColor = `hsla(${hue},100%,60%,${intensity * 0.8})`; 
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+
+        if (modeSel.value === 'time') {
+          analyser.getByteTimeDomainData(timeBuf);
+          // ms/div scaling horizontally
+          const msPerDiv = parseFloat(msPerDivEl ? msPerDivEl.value : 2); // ms
+          const sampleRate = audioCtx ? audioCtx.sampleRate : 48000;
+          // number of samples across whole canvas: divisions (8) * samples per division
+          const samplesPerDiv = Math.max(1, Math.round(sampleRate * (msPerDiv / 1000)));
+          const totalSamples = samplesPerDiv * 8;
+          // We'll display the last `samplesToShow` samples (clamped to timeBuf length)
+          const N = timeBuf.length;
+          const samplesToShow = Math.min(N, totalSamples);
+          const startIndex = Math.max(0, N - samplesToShow);
+          for (let i = 0; i < samplesToShow; i++) {
+            const sample = timeBuf[startIndex + i];
+            let y = (sample - 128) / 128; // -1..1
+            y *= gain;
+            // Map x from 0..w (start at left)
+            const px = (i / (samplesToShow - 1)) * w;
+            let cx = px;
+            // Swap/invert options apply to coordinates after mapping
+            let py = (-y * 0.45 + 0.5) * h;
+            if (swapXY) { const t = cx; cx = py; py = t; }
+            if (invertXEl.checked) cx = w - cx;
+            if (invertYEl.checked) py = h - py;
+            if (i === 0) ctx.moveTo(cx, py); else ctx.lineTo(cx, py);
+          }
+        } else if (modeSel.value === 'spectrum') {
+  analyser.getByteFrequencyData(freqBuf);
+  const N = freqBuf.length;
+  for (let i = 0; i < N; i++) {
+    const mag = (freqBuf[i] / 255) * gain;
+    let cx = (i / N) * w;
+    let cy = (1 - mag) * h;
+    if (swapXY) { const t = cx; cx = cy; cy = t; }
+    if (invertXEl.checked) cx = w - cx;
+    if (invertYEl.checked) cy = h - cy;
+    if (i === 0) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy);
+  }
+} else { // lissajous
+  const len = 1024;
+  const bufX = new Float32Array(len);
+  const bufY = new Float32Array(len);
+  if (analyserY) {
+    try {
+      analyser.getFloatTimeDomainData(bufX);
+      analyserY.getFloatTimeDomainData(bufY);
+    } catch (e) {
+      const tb = new Uint8Array(analyser.fftSize);
+      analyser.getByteTimeDomainData(tb);
+      for (let i = 0; i < len && i < tb.length; i++) bufX[i] = (tb[i] - 128) / 128;
+      const tb2 = new Uint8Array(analyser.fftSize);
+      analyserY.getByteTimeDomainData(tb2);
+      for (let i = 0; i < len && i < tb2.length; i++) bufY[i] = (tb2[i] - 128) / 128;
+    }
+  } else {
+    const tb = new Uint8Array(analyser.fftSize);
+    analyser.getByteTimeDomainData(tb);
+    for (let i = 0; i < len && i < tb.length; i++) bufX[i] = (tb[i] - 128) / 128;
+    for (let i = 0; i < len; i++) bufY[i] = bufX[(i + 128) % len];
+  }
+  for (let i = 0; i < len; i++) {
+    let x = bufX[i] * gain;
+    let y = bufY[i] * gain;
+    let cx = (x * 0.45 + 0.5) * w;
+    let cy = (-y * 0.45 + 0.5) * h;
+    if (swapXY) { const t = cx; cx = cy; cy = t; }
+    if (invertXEl.checked) cx = w - cx;
+    if (invertYEl.checked) cy = h - cy;
+    if (i === 0) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy);
+  }
+}
+
+        ctx.stroke();
+        ctx.restore();
+
+        animationId = requestAnimationFrame(frame);
+      };
+
+      frame();
+    }
+
+    // Initialize canvases
+    sizeCanvases();
+
+    // Additional UI plumbing to prevent mixed audio and ensure playback resumes correctly when switching back to file
+    micBtn.addEventListener('click', async () => {
+      try { audioEl.pause(); } catch(e) {}
+    });
+
+    fileBtn.addEventListener('click', () => {
+      if (currentStream) {
+        try { currentStream.getTracks().forEach(t => t.stop()); } catch(e){}
+        currentStream = null;
+        stopSource();
+      }
+    });
+
+    // Ensure theme changes do not affect the canvas container's color: canvas container set to fixed white background above.
+
+    // Clean up on page unload: stop mic tracks
+    window.addEventListener('beforeunload', () => {
+      if (currentStream) currentStream.getTracks().forEach(t => t.stop());
+      if (animationId) cancelAnimationFrame(animationId);
+    });
+  </script>
+</body>
+</html>
