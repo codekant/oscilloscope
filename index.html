@@ -37,7 +37,7 @@
       <div class="mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 items-start">
         <section class="rounded-xl shadow-soft p-3 md:p-4" style="background:#212121">
           <div id="scope-holder" class="scope-stack rounded-xl overflow-hidden canvas-wrap" style="background-color:#000000">
-            <canvas id="traceCanvas" class="scope-trace blur-xs" aria-hidden="true"></canvas>
+            <canvas id="traceCanvas" class="scope-trace blur-[0.7px]" aria-hidden="true"></canvas>
             <canvas id="gridCanvas" class="scope-grid" aria-hidden="true"></canvas>
           </div>
           <span class="self-auto pt-2 text-xs font-medium text-gray-400 hidden" id="fileNotes">Note: Refresh if you wish to change the uploaded file.</span> 
@@ -360,7 +360,7 @@
         const invertX = invertXEl.checked ? -1 : 1;
         const invertY = invertYEl.checked ? -1 : 1;
         ctx.save();
-        ctx.lineWidth = 1.5;
+        ctx.lineWidth = 0.7;
         ctx.lineJoin = 'round';
         ctx.lineCap = 'round';
         ctx.strokeStyle = `hsla(${hue},100%,60%,${intensity})`;
